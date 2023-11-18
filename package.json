@@ -1,0 +1,16 @@
+{
+  "name": "chai-aur-backend",
+  "version": "1.0.0",
+  "description": "this is the project for the learning purpose with hitesh choudhry sir ",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/index.js"
+  },
+  "author": "Junedkhan",
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "prettier": "^3.1.0"
+  }
+}
