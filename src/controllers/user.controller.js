@@ -71,4 +71,140 @@ const registerUser = asyncHandler(async (req, res) => {
 
 })
 
-export { registerUser }
+// ++++++++++++++++ Password Update feathure+++++++++++
+
+const changeCurrentPassword = asyncHandler(async (req, res) => {
+
+    //first we extrect data from req body and user id from the user object that inject by the middleware
+    const { oldPassword, newPassword } = req?.body;
+
+    const user = User.findById(req.user?._id)
+
+    //now user have access the method of db that is isPasswordCorrect that give result that ispassword correct and if then we will update
+    const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
+
+    if (!isPasswordCorrect) {
+        throw new ApiError(400, "Invalid old password!!")
+    }
+
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false })
+
+    //now we send the suucess message to user
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Password changed successfully!!"))
+
+})
+
+//++++++++++++++ Get Current User ++++++++++++++
+const getCurrentUser = asyncHandler(async (req, res) => {
+    //it's too easy now because we alredy make the middleware that inject the user data in the route so we just send it from req.body
+    return res
+        .status(200)
+        .json(new ApiResponse(200, req.user, "Current user fetched successfully!!"))
+})
+
+//++++++++++++++ Update user account details ++++++++++++
+const updateAccountDetails = asyncHandler(async (req, res) => {
+    //it's completely depend on us which type details and field we gives user to update.
+    //here, lets suppose we user update fullname and email
+
+    const { fullName, email } = req?.body
+
+    if (!fullName || !email) {
+        throw new ApiError(401, "All fields are required!!")
+    }
+
+    //now we find in db by user._id and update by the method of findAndUpdate method
+
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                fullName,
+                email
+            }
+        },
+        {
+            new: true
+        }).select("-password")
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user, "Account details updated successfully!!"))
+})
+
+//++++++++++++  Updated user avatar +++++++++++++++++++++
+
+const updateUserAvatar = asyncHandler(async (req, res) => {
+    //it's good to handle the file data seprete instant of together with account data because it's recommended and standard approch and to avoiding load on the network the text data with file.
+
+    const avatarLoaclPath = req.file?.path; //that our multer middleware inject and we get this path
+
+    if (!avatarLoaclPath) {
+        throw new ApiError(400, "Avatar file is missing!!")
+    }
+
+    const avatar = await uploadOnCloudinary(avatarLoaclPath)
+
+    if (!avatar.url) {
+        throw new ApiError(400, "Error while uploading avatar!!")
+    }
+
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+
+        {
+            $set: {
+                avatar: avatar.url
+            }
+        },
+        {
+            new: true
+        }
+    )
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user, "Avatar updated sucessfully!!"))
+
+})
+
+//+++++++++ Update cover image +++++++++++++++++++++
+
+const updateCoverImage = asyncHandler(async (req, res) => {
+    //as same as avatart image..
+
+    const coverImageLoaclPath = req.file?.path;
+
+    if (!coverImageLoaclPath) {
+        throw new ApiError(400, "Cover image file is missing!!")
+    }
+
+    const coverImage = await uploadOnCloudinary(coverImageLoaclPath)
+
+    if (!coverImage.url) {
+        throw new ApiError(400, "Error while uploading cover image!!")
+    }
+
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+
+        {
+            $set: {
+                coverImage: coverImage.url
+            }
+        },
+        {
+            new: true
+        }
+    )
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, user, "Cover image updated sucessfully!!"))
+
+})
+export { registerUser, changeCurrentPassword, getCurrentUser, updateAccountDetails, updateUserAvatar, updateCoverImage }
