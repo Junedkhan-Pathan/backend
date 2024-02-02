@@ -72,6 +72,7 @@ const registerUser = asyncHandler(async (req, res) => {
 })
 
 // ++++++++++++++++ Password Update feathure+++++++++++
+
 const changeCurrentPassword = asyncHandler(async (req, res) => {
 
     //first we extrect data from req body and user id from the user object that inject by the middleware
