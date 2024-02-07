@@ -157,7 +157,7 @@ const logoutUser = asyncHandler(async (req, res) => {
         req.user?._id,
         {
 
-            $set: { refreshToken: undefined } //it's set the value in db
+            $unset: { refreshToken:1 } //it's set the value in db
         },
         {
             new: true            //for it give new updated value otherwise in response it give the previous old value.
