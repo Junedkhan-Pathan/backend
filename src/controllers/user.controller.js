@@ -4,6 +4,7 @@ import { User } from '../models/user.model.js'
 import { uploadOnCloudinary } from '../utils/cloudinary.js';
 import { ApiResponse } from '../utils/ApiResponse.js';
 import jwt from 'jsonwebtoken'
+import mongoose from 'mongoose';
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -26,10 +27,10 @@ const registerUser = asyncHandler(async (req, res) => {
 
     //1 - get user details from the frontend 
 
-    const { userName, fullName, email, password } = req.body;
+    const { username, fullName, email, password } = req.body;
 
     //2 - validation
-    if ([userName, fullName, email, password].some((field) => field.trim() === "")) {
+    if ([username, fullName, email, password].some((field) => field.trim() === "")) {
         throw new ApiError(400, "All field are required!!")
     }
 
@@ -37,11 +38,11 @@ const registerUser = asyncHandler(async (req, res) => {
     //3 - check user already exist with field : username,email
 
     const existingUser = await User.findOne({
-        $or: [{ email }, { userName }]
+        $or: [{ email }, { username }]
     })
 
     if (existingUser) {
-        throw new ApiError(409, `User with ${email || "email"} and ${userName || "Username"} is already exist!!`);
+        throw new ApiError(409, `User with ${email || "email"} and ${username || "Username"} is already exist!!`);
     }
 
     //4 - check images & avatar
@@ -65,7 +66,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
     const userCreate = await User.create({
         fullName,
-        userName: userName.toLowerCase(),
+        username: username.toLowerCase(),
         avatar: avatarRes?.url,
         coverImage: coverImgRes?.url || "",
         email,
@@ -94,17 +95,15 @@ const loginUser = asyncHandler(async (req, res) => {
     //extrect the form body
 
     const { username, email, password } = req.body;
-
     //checking the is data validate user and email password
 
-    if (!username && !email) { //here,we expecting that username and email are required
+    if (!(email || username)) { //here,we expecting that username or email is required
         throw new ApiError(400, "username OR email is required!!")
     }
 
     //find the user in database
-
     const user = await User.findOne({
-        $or: [{ email }, { username }]
+        $or: [{ username }, { email }]
     })
 
     if (!user) {
@@ -184,7 +183,8 @@ const logoutUser = asyncHandler(async (req, res) => {
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
     //We extract reftoken from our req body and cookie
-    const { incomingRefreshToken } = req.body?.refreshToken || req.cookies?.refreshToken
+
+    const incomingRefreshToken = req.body?.refreshToken || req.cookies?.refreshToken
 
     if (!incomingRefreshToken) {
         throw new ApiError(401, "Unauthorized request!!");
@@ -229,11 +229,14 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 const changeCurrentPassword = asyncHandler(async (req, res) => {
 
     //first we extrect data from req body and user id from the user object that inject by the middleware
+
     const { oldPassword, newPassword } = req?.body;
 
-    const user = User.findById(req.user?._id)
+    const user = await User.findById(req.user?._id)
 
+    // console.log("====User pass body",user)
     //now user have access the method of db that is isPasswordCorrect that give result that ispassword correct and if then we will update
+
     const isPasswordCorrect = await user.isPasswordCorrect(oldPassword)
 
     if (!isPasswordCorrect) {
@@ -361,5 +364,165 @@ const updateCoverImage = asyncHandler(async (req, res) => {
 
 })
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken, changeCurrentPassword, getCurrentUser, updateAccountDetails, updateUserAvatar, updateCoverImage }
+// ++++++++ user profile by aggregation pipleline +++++++++
+
+const getUserChannelProfile = asyncHandler(async (req, res) => {
+
+    //extrect username from the params if not throw error
+
+    const { username } = req?.params;
+
+    if (!username) {
+        throw new ApiError(400, "Username is missing!!")
+    }
+
+    //we can also do that we usually do findby id then but it would be lenghy
+    //so here, aggregate pipeline come
+
+    const channel = await User.aggregate([
+        {
+            $match: {
+                username: username?.toLowerCase()
+            }
+        },
+        {
+            $lookup: { //this is for the who is my subcribers
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "channel",
+                as: "subscribers"
+
+            }
+        },
+        {
+            $lookup: {     //this field for getting that i subcribed
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "subscribedTo"
+
+            }
+        },
+        {
+            $addFields: {
+                subscirbersCount: {
+                    $size: "$subscribers" //now ,subscribers is field that we count "$" used in prefix
+                },
+                channelSubscribedToCount: { //same for counting that i subscribed
+                    $size: "$subscribedTo"
+                },
+                isSubscribed: { //this is for cheaking that the user is out subscribed or not.
+                    $cond: {
+                        if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+                        then: true,
+                        else: false
+                    }
+                }
+
+            }
+        },
+        {
+            $project: {  //for which of field are we want just we it's flag 1 and it return
+                fullName: 1,
+                username: 1,
+                subscirbersCount: 1,
+                channelSubscribedToCount: 1,
+                isSubscribed: 1,
+                avatar: 1,
+                coverImage: 1,
+                email: 1
+            }
+        }
+    ])
+
+    console.log("==========>Aggregate return Channel====>", channel);
+
+    if (!channel?.length) {
+        throw new ApiError("404", "Channel not exists!!")
+    }
+
+    //if successfully got then send to user 
+
+    res.status(200)
+        .json(
+            new ApiResponse(200, channel[0], "Channel successfully fetched!!")
+        )
+})
+
+//++++++++ Get Watch History +++++++++++++++
+
+const getWatchHistory = asyncHandler(async (req, res) => {
+    //to do this task we use sub pipeline for the watchhistory.
+
+    const user = await User.aggregate([
+        {
+            $match: {
+                _id: new mongoose.Types.ObjectId(req.user?._id)
+            }
+        },
+        {
+            $lookup: {  //we make collection that contain this details....
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline: [
+                    {
+                        $lookup: {   //for that videos owner details 
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {  //for the just which value we want to pass of the owner
+                                    $project: {
+                                        fullName: 1,
+                                        username: 1,
+                                        avatar: 1
+
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        //this do because ease of the frontend that he cas access directly by owner property instead of extrecting the array first element and 0th value and etc...
+                        $addFields: {
+                            owner: {
+                                $first: "$owner"
+                            }
+                        }
+                    }
+
+                ]
+            }
+        }
+    ])
+
+    res.status(200)
+        .json(
+            new ApiResponse(
+                200,
+                user[0].watchHistory,
+                "Watch history successfully fetched!!"
+            )
+        )
+
+})
+
+
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    refreshAccessToken,
+    changeCurrentPassword,
+    getCurrentUser,
+    updateAccountDetails,
+    updateUserAvatar,
+    updateCoverImage,
+    getUserChannelProfile,
+    getWatchHistory
+
+}
 
